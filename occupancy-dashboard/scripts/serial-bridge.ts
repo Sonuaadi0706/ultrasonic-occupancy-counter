@@ -126,6 +126,11 @@ client.on("message", (topic, payload) => {
   port.write(`@cmd ${json}\n`);
 });
 
+// Re-announce "online" so a stale retained "offline" can't stick.
+setInterval(() => {
+  if (online) client.publish(T("status"), JSON.stringify({ deviceId: DEVICE_ID, status: "online", ts: Date.now() }), { qos: 1, retain: true });
+}, 30_000);
+
 // No state for a while (ESP32 unplugged/crashed) -> mark offline.
 setInterval(() => {
   if (online && Date.now() - lastStateAt > STALE_MS) setOnline(false);

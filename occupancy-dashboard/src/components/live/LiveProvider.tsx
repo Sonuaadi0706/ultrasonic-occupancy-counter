@@ -124,6 +124,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     if (prevUno.current === true && !s.unoOnline) pushToast({ tone: "coral", title: "UNO link lost", body: "The ESP32 stopped receiving UART state." });
     if (prevUno.current === false && s.unoOnline) pushToast({ tone: "lime", title: "UNO link restored" });
     prevUno.current = s.unoOnline;
+    // A fresh state message proves the gateway is up, even if a stale "offline"
+    // status (e.g. another client's Last Will) is still retained on the broker.
+    if (typeof s.ts === "number" && Math.abs(t - s.ts) < 10_000 && prevStatus.current !== "online") {
+      prevStatus.current = "online";
+      setDeviceStatus("online");
+    }
   }, [pushToast]);
 
   const handleEvent = useCallback((e: DeviceEvent) => {
