@@ -147,6 +147,7 @@ tools/
 
 Detailed production notes: [`code/README.md`](code/README.md)  
 Hardware test guide: [`firmware/README.md`](firmware/README.md)  
+Counting state machine: [`docs/state-machine.svg`](docs/state-machine.svg)  
 Hosted dashboard handoff: [`docs/CLOUD_DASHBOARD_HANDOFF.md`](docs/CLOUD_DASHBOARD_HANDOFF.md)
 
 ---
