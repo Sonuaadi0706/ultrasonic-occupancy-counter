@@ -17,6 +17,12 @@
 //
 // Wiring: UNO TX -> ESP32 GPIO16 (RX2) through a voltage divider (5 V -> 3.3 V,
 //         e.g. 1 kΩ / 2 kΩ). ESP32 GPIO17 (TX2) -> UNO RX. Common GND.
+//
+// LINK_USB 1 (set in secrets.h): no Wi-Fi. The same JSON goes out over the USB
+// cable as lines "@state {...}", "@event {...}", "@ack {...}", and
+// occupancy-dashboard/scripts/serial-bridge.ts relays them to MQTT + the ingest
+// API. The bridge sends back "@time <epochMs>" (clock) and "@cmd {...}" lines.
+// Any other line on USB is plain debug output.
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -25,6 +31,10 @@
 #include <ArduinoJson.h>
 #include <sys/time.h>
 #include "secrets.h"   // copy secrets.example.h -> secrets.h
+
+#ifndef LINK_USB
+#define LINK_USB 0
+#endif
 
 // ── Pins / timing ────────────────────────────────────────────────────────────
 static const int UNO_RX_PIN = 16;
@@ -122,6 +132,21 @@ const char* verbFor(const char* cmd) {
   return nullptr;
 }
 
+// Send one message: over MQTT (Wi-Fi mode) or as an "@kind {json}" USB line.
+void emit(const char* kind, const char* json, size_t n, bool retained) {
+  if (LINK_USB) {
+    Serial.print('@');
+    Serial.print(kind);
+    Serial.print(' ');
+    Serial.write((const uint8_t*)json, n);
+    Serial.print('\n');
+    return;
+  }
+  if (!mqtt.connected()) return;
+  String topic = String("counter/") + DEVICE_ID + "/" + kind;
+  mqtt.publish(topic.c_str(), (const uint8_t*)json, n, retained);
+}
+
 void publishAck(const char* cmdId, const char* verb, bool ok) {
   JsonDocument d;
   d["cmdId"] = cmdId;
@@ -130,12 +155,18 @@ void publishAck(const char* cmdId, const char* verb, bool ok) {
   d["ts"] = epochMs();
   char buf[192];
   size_t n = serializeJson(d, buf);
-  mqtt.publish(T_ACK.c_str(), (const uint8_t*)buf, n, false);
+  emit("ack", buf, n, false);
   Serial.printf("ack %s %s %s\n", verb, ok ? "OK" : "ERR", cmdId);
 }
 
+void handleCommand(const byte* payload, unsigned int len);
+
 void onMqttMessage(char* topic, byte* payload, unsigned int len) {
   if (T_CMD != topic) return;
+  handleCommand(payload, len);
+}
+
+void handleCommand(const byte* payload, unsigned int len) {
   JsonDocument d;
   if (deserializeJson(d, payload, len)) { Serial.println("bad cmd JSON"); return; }
 
@@ -258,6 +289,29 @@ void readUno() {
   }
 }
 
+// USB link: "@time <epochMs>" sets the clock, "@cmd {json}" is a dashboard command.
+void readUsb() {
+  static char buf[512];
+  static int len = 0;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\r') continue;
+    if (c != '\n') {
+      if (len < (int)sizeof(buf) - 1) buf[len++] = c; else len = 0;
+      continue;
+    }
+    buf[len] = 0;
+    if (!strncmp(buf, "@time ", 6)) {
+      uint64_t ms = strtoull(buf + 6, nullptr, 10);
+      struct timeval tv = { (time_t)(ms / 1000), (suseconds_t)((ms % 1000) * 1000) };
+      settimeofday(&tv, nullptr);
+    } else if (!strncmp(buf, "@cmd ", 5)) {
+      handleCommand((const byte*)(buf + 5), len - 5);
+    }
+    len = 0;
+  }
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // Publishing
 // ═════════════════════════════════════════════════════════════════════════════
@@ -281,8 +335,8 @@ void flushOutbox() {
 
     char buf[INGEST_JSON_MAX];
     size_t n = serializeJson(d, buf, sizeof(buf));
-    if (mqtt.connected()) mqtt.publish(T_EVENT.c_str(), (const uint8_t*)buf, n, false);
-    if (xQueueSend(ingestQueue, buf, 0) != pdTRUE) Serial.println("ingest queue full, event dropped from history");
+    emit("event", buf, n, false);   // over USB the bridge also POSTs it to the ingest API
+    if (!LINK_USB && xQueueSend(ingestQueue, buf, 0) != pdTRUE) Serial.println("ingest queue full, event dropped from history");
     Serial.printf("event %s count=%d\n", e.type, e.count);
 
     outHead = (outHead + 1) % OUTBOX_SIZE;
@@ -317,11 +371,11 @@ void publishState() {
   esp["rssi"] = WiFi.RSSI();
   esp["uptimeMs"] = millis();
   esp["freeHeap"] = ESP.getFreeHeap();
-  esp["ip"] = WiFi.localIP().toString();
+  esp["ip"] = LINK_USB ? String("usb") : WiFi.localIP().toString();
 
   char buf[640];
   size_t n = serializeJson(d, buf, sizeof(buf));
-  mqtt.publish(T_STATE.c_str(), (const uint8_t*)buf, n, true);  // retained
+  emit("state", buf, n, true);  // retained
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -395,6 +449,12 @@ void setup() {
 
   snprintf(bootId, sizeof(bootId), "%08x", (unsigned)esp_random());
 
+  if (LINK_USB) {
+    WiFi.mode(WIFI_OFF);
+    Serial.println("Cloud gateway: USB link mode (run `npm run bridge` on the Mac)");
+    return;
+  }
+
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -416,6 +476,19 @@ void setup() {
 }
 
 void loop() {
+  if (LINK_USB) {
+    readUno();
+    readUsb();
+    flushOutbox();
+    checkCmdTimeouts();
+    static uint32_t lastUsbState = 0;
+    if (timeValid() && millis() - lastUsbState >= STATE_PERIOD_MS) {
+      lastUsbState = millis();
+      publishState();
+    }
+    return;
+  }
+
   static bool wasWifi = false;
   bool wifi = WiFi.status() == WL_CONNECTED;
   if (wifi && !wasWifi) Serial.printf("Wi-Fi connected, IP %s\n", WiFi.localIP().toString().c_str());

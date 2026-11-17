@@ -7,6 +7,10 @@
 
 #define DEVICE_ID      "room-01"   // must match NEXT_PUBLIC_DEVICE_ID and the devices table
 
+// 1 = no Wi-Fi: send data over the USB cable to `npm run bridge` on the Mac.
+// 0 = Wi-Fi + MQTT using one of the blocks below.
+#define LINK_USB       0
+
 // ═════════════════════════════════════════════════════════════════════════════
 // Pick ONE block: comment out the other one.
 // ═════════════════════════════════════════════════════════════════════════════

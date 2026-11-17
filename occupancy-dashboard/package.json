@@ -10,7 +10,8 @@
     "broker": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/broker.ts",
     "device": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/mock-device.ts",
     "seed": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/seed.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bridge": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env.local scripts/serial-bridge.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
@@ -33,6 +34,7 @@
     "aedes": "^1.2.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
+    "serialport": "^13.0.0",
     "tailwindcss": "4.3.3",
     "typescript": "^5",
     "ws": "^8.22.2"
