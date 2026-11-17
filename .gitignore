@@ -6,3 +6,6 @@ build/
 *.bin
 *.elf
 *.map
+
+# Cloud gateway credentials
+code/esp32/cloud_gateway/secrets.h
