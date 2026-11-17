@@ -1,8 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { AlertTriangle, FlaskConical } from "lucide-react";
-import { LiveProvider, useLive } from "@/components/live/LiveProvider";
+import { AlertTriangle, FlaskConical, Radio } from "lucide-react";
+import { LiveProvider, REAL_AVAILABLE, useLive } from "@/components/live/LiveProvider";
 import { Background } from "./Background";
 import { Boot } from "./Boot";
 import { Charts } from "./Charts";
@@ -32,7 +32,14 @@ function Banner() {
       <div className="flex items-start gap-3 rounded-2xl border border-violet/30 bg-violet/10 px-4 py-3 text-sm">
         <FlaskConical size={16} className="mt-0.5 shrink-0 text-violet" />
         <span className="text-mute">
-          <span className="text-ink">Demo mode.</span> No MQTT broker is configured, so the live view runs a software twin of the UNO + ESP32. History and charts come from the database. Set <code className="font-mono text-violet">NEXT_PUBLIC_MQTT_URL</code> to go live.
+          <span className="text-ink">Demo mode.</span> The live view is a software twin of the UNO + ESP32, and controls drive the twin, not your hardware.{" "}
+          {REAL_AVAILABLE ? (
+            <>Switch to <span className="text-lime">Real</span> in the top bar to see your device.</>
+          ) : (
+            <>
+              Set <code className="font-mono text-violet">NEXT_PUBLIC_MQTT_URL</code> to enable Real mode.
+            </>
+          )}
         </span>
       </div>
     );
@@ -42,6 +49,15 @@ function Banner() {
         <AlertTriangle size={16} className="text-amber" />
         <span className="text-mute">
           <span className="text-amber">Live data disconnected</span> — retrying the MQTT broker. History still loads.
+        </span>
+      </div>
+    );
+  } else if (conn === "connected" && deviceStatus === "unknown" && !state) {
+    node = (
+      <div className="flex items-center gap-3 rounded-2xl border border-cyan/30 bg-cyan/10 px-4 py-3 text-sm">
+        <Radio size={16} className="shrink-0 text-cyan" />
+        <span className="text-mute">
+          <span className="text-cyan">Connected to the broker, waiting for your ESP32.</span> Power the gateway (Wi-Fi), or plug it in over USB and run <code className="font-mono text-cyan">npm run bridge</code>.
         </span>
       </div>
     );

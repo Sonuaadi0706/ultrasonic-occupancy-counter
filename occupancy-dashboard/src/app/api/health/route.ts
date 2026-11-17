@@ -21,7 +21,7 @@ export async function GET() {
       database,
       databaseKind: isLocalDb ? "sqlite-file" : "turso",
       mqttCommands: Boolean(process.env.MQTT_URL),
-      liveSource: process.env.NEXT_PUBLIC_MQTT_URL ? "mqtt" : "simulator",
+      realModeAvailable: Boolean(process.env.NEXT_PUBLIC_MQTT_URL),
       latencyMs: Date.now() - started,
       ts: Date.now(),
       ...(error ? { error } : {}),

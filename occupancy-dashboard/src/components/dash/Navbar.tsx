@@ -1,8 +1,8 @@
 "use client";
 
 import { motion } from "motion/react";
-import { Lock, Unlock } from "lucide-react";
-import { DEVICE_ID, DEVICE_NAME, useLive } from "@/components/live/LiveProvider";
+import { FlaskConical, Radio } from "lucide-react";
+import { DEVICE_ID, DEVICE_NAME, REAL_AVAILABLE, useLive, type Source } from "@/components/live/LiveProvider";
 import { ago } from "@/lib/format";
 
 function Pill({ label, value, tone, pulse }: { label: string; value: string; tone: "lime" | "coral" | "amber" | "mute" | "violet"; pulse?: boolean }) {
@@ -18,8 +18,42 @@ function Pill({ label, value, tone, pulse }: { label: string; value: string; ton
   );
 }
 
+/** Demo = built-in simulator · Real = your ESP32 over MQTT. */
+export function SourceToggle() {
+  const { source, setSource } = useLive();
+  const opts: { v: Source; label: string; icon: React.ReactNode }[] = [
+    { v: "simulator", label: "Demo", icon: <FlaskConical size={13} /> },
+    { v: "mqtt", label: "Real", icon: <Radio size={13} /> },
+  ];
+  return (
+    <div role="radiogroup" aria-label="Data source" className="relative flex rounded-full border border-line-2 bg-white/[0.03] p-0.5">
+      {opts.map((o) => {
+        const on = source === o.v;
+        const disabled = o.v === "mqtt" && !REAL_AVAILABLE;
+        return (
+          <button
+            key={o.v}
+            role="radio"
+            aria-checked={on}
+            disabled={disabled}
+            onClick={() => !on && setSource(o.v)}
+            title={disabled ? "Set NEXT_PUBLIC_MQTT_URL to enable real hardware" : o.v === "mqtt" ? "Live data from your ESP32 over MQTT" : "Built-in simulator"}
+            className={`relative flex items-center gap-1.5 rounded-full px-3 py-1 font-mono text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${on ? "text-black" : "text-mute enabled:hover:text-ink"}`}
+          >
+            {on && <motion.span layoutId="source-pill" className={`absolute inset-0 rounded-full ${o.v === "mqtt" ? "bg-lime" : "bg-violet"}`} transition={{ type: "spring", stiffness: 420, damping: 32 }} />}
+            <span className="relative flex items-center gap-1.5">
+              {o.icon}
+              {o.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Navbar() {
-  const { source, conn, deviceStatus, state, lastStateAt, now, stale, admin } = useLive();
+  const { source, conn, deviceStatus, state, lastStateAt, now, stale } = useLive();
 
   const brokerTone = source === "simulator" ? "violet" : conn === "connected" ? "lime" : conn === "connecting" || conn === "reconnecting" ? "amber" : "coral";
   const brokerVal = source === "simulator" ? "simulator" : conn;
@@ -49,6 +83,10 @@ export function Navbar() {
           </span>
         </a>
 
+        <div className="ml-auto sm:ml-0">
+          <SourceToggle />
+        </div>
+
         <nav className="hidden items-center gap-5 font-mono text-xs text-mute lg:flex">
           {[
             ["Live", "#top"],
@@ -67,9 +105,7 @@ export function Navbar() {
           <Pill label="esp32" value={devVal} tone={devTone} />
           <Pill label="uno" value={unoVal} tone={unoTone} />
           <span className="hidden font-mono text-[11px] text-dim sm:inline">{lastStateAt ? `updated ${ago(now - lastStateAt)}` : "connecting…"}</span>
-          <a href="#controls" className={`hidden h-8 w-8 sm:grid place-items-center rounded-full border ${admin ? "border-lime/50 text-lime" : "border-line text-mute"}`} aria-label={admin ? "Controls unlocked" : "Controls locked"}>
-            {admin ? <Unlock size={14} /> : <Lock size={14} />}
-          </a>
+
         </div>
       </div>
     </motion.header>

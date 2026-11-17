@@ -16,6 +16,9 @@ const STALE_AFTER_MS = 5000;
 const MAX_LIVE_EVENTS = 60;
 
 export type Source = "mqtt" | "simulator";
+/** Real mode needs a broker URL baked in at build time. */
+export const REAL_AVAILABLE = Boolean(MQTT_URL);
+const SOURCE_KEY = "echo-source";
 export type Conn = "connecting" | "connected" | "reconnecting" | "offline";
 export type LiveEvent = DeviceEvent & { receivedAt: number };
 
@@ -37,6 +40,7 @@ export interface Toast {
 
 interface LiveContextValue {
   source: Source;
+  setSource: (s: Source) => void;
   conn: Conn;
   state: DeviceState | null;
   /** Always-current state for animation loops (not throttled). */
@@ -47,9 +51,7 @@ interface LiveContextValue {
   events: LiveEvent[];
   now: number;
   commands: Partial<Record<CommandName, PendingCommand>>;
-  sendCommand: (cmd: CommandName, value?: string | number) => Promise<PendingCommand | { error: string; needsLogin?: boolean }>;
-  admin: boolean;
-  setAdmin: (v: boolean) => void;
+  sendCommand: (cmd: CommandName, value?: string | number) => Promise<PendingCommand | { error: string }>;
   onEvent: (fn: (e: LiveEvent) => void) => () => void;
   toasts: Toast[];
   pushToast: (t: Omit<Toast, "id">) => void;
@@ -66,7 +68,7 @@ export function useLive() {
 }
 
 export function LiveProvider({ children }: { children: ReactNode }) {
-  const source: Source = MQTT_URL ? "mqtt" : "simulator";
+  const [source, setSourceState] = useState<Source>(REAL_AVAILABLE ? "mqtt" : "simulator");
   const [conn, setConn] = useState<Conn>("connecting");
   const [state, setState] = useState<DeviceState | null>(null);
   const stateRef = useRef<DeviceState | null>(null);
@@ -75,7 +77,6 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [now, setNow] = useState(0);
   const [commands, setCommands] = useState<Partial<Record<CommandName, PendingCommand>>>({});
-  const [admin, setAdmin] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [historyVersion, setHistoryVersion] = useState(0);
 
@@ -143,7 +144,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       return { ...c, [p.cmd]: { ...cur, status: a.ok ? "ok" : "error", message: a.ok ? `${a.verb} acknowledged` : `${a.verb} rejected by device` } };
     });
     pushToast(a.ok ? { tone: "lime", title: `${a.verb} ✓`, body: "Acknowledged by the device." } : { tone: "coral", title: `${a.verb} failed`, body: "The UNO rejected the command." });
-    void fetch("/api/command/ack", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmdId: a.cmdId, ok: a.ok }) }).catch(() => {});
+    if (!a.cmdId.startsWith("demo-")) void fetch("/api/command/ack", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmdId: a.cmdId, ok: a.ok }) }).catch(() => {});
   }, [pushToast]);
 
   // ── Clock for ages / staleness ────────────────────────────────────────────
@@ -157,12 +158,39 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // ── Admin session ─────────────────────────────────────────────────────────
+  // ── Demo / real switch ────────────────────────────────────────────────────
+  const setSource = useCallback((next: Source) => {
+    if (next === "mqtt" && !REAL_AVAILABLE) return;
+    try {
+      localStorage.setItem(SOURCE_KEY, next);
+    } catch {}
+    // Drop everything from the previous source so demo and real data never mix.
+    pendingById.current.forEach((p) => clearTimeout(p.timer));
+    pendingById.current.clear();
+    stateRef.current = null;
+    prevStatus.current = "unknown";
+    prevUno.current = null;
+    setState(null);
+    setLastStateAt(null);
+    setEvents([]);
+    setCommands({});
+    setDeviceStatus("unknown");
+    setConn("connecting");
+    setSourceState(next);
+  }, []);
+
+  // Restore the viewer's last choice (after hydration, so SSR markup matches).
   useEffect(() => {
-    fetch("/api/session", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setAdmin(Boolean(d.admin)))
-      .catch(() => {});
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(SOURCE_KEY);
+    } catch {}
+    if ((saved === "mqtt" || saved === "simulator") && saved !== source) {
+      const t = setTimeout(() => setSource(saved as Source), 0);
+      return () => clearTimeout(t);
+    }
+    // Only on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Live source: simulator ────────────────────────────────────────────────
@@ -247,8 +275,38 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   }, [source, handleAck, handleEvent, handleState, handleStatus]);
 
   // ── Commands ──────────────────────────────────────────────────────────────
+  const track = useCallback(
+    (cmdId: string, cmd: CommandName, value?: string | number): PendingCommand => {
+      const entry: PendingCommand = { cmdId, cmd, value, startedAt: Date.now(), status: "pending" };
+      setCommands((c) => ({ ...c, [cmd]: entry }));
+      const timer = setTimeout(() => {
+        pendingById.current.delete(cmdId);
+        setCommands((c) => (c[cmd]?.cmdId === cmdId ? { ...c, [cmd]: { ...entry, status: "timeout", message: "No ack within 5 s" } } : c));
+        pushToast({ tone: "amber", title: `${cmd} timed out`, body: "No acknowledgement from the device within 5 s." });
+      }, ACK_TIMEOUT_MS);
+      pendingById.current.set(cmdId, { cmd, timer });
+      return entry;
+    },
+    [pushToast],
+  );
+
   const sendCommand = useCallback<LiveContextValue["sendCommand"]>(
     async (cmd, value) => {
+      // Demo: the simulated UNO answers locally, like real hardware would.
+      if (source === "simulator") {
+        const sim = simRef.current;
+        if (!sim) return { error: "Simulator is still starting" };
+        const entry = track(`demo-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, cmd, value);
+        setTimeout(() => {
+          const { ack, events: evs } = sim.command({ cmdId: entry.cmdId, cmd, value, ts: Date.now() });
+          evs.forEach(handleEvent);
+          handleState(sim.state, true);
+          setTimeout(() => handleAck(ack), 140);
+        }, 220 + Math.random() * 200);
+        return entry;
+      }
+
+      // Real: the server publishes to counter/<id>/cmd; the ESP32 acks over MQTT.
       let res: Response;
       try {
         res = await fetch("/api/command", {
@@ -260,37 +318,11 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         return { error: "Network error — server unreachable" };
       }
       const data = await res.json().catch(() => ({}));
-      if (res.status === 401) {
-        setAdmin(false);
-        return { error: "Admin login required", needsLogin: true };
-      }
       if (!res.ok) return { error: data.error || `Command failed (${res.status})` };
-
-      const entry: PendingCommand = { cmdId: data.cmdId, cmd, value, startedAt: Date.now(), status: "pending" };
-      setCommands((c) => ({ ...c, [cmd]: entry }));
-      const timer = setTimeout(() => {
-        pendingById.current.delete(entry.cmdId);
-        setCommands((c) => (c[cmd]?.cmdId === entry.cmdId ? { ...c, [cmd]: { ...entry, status: "timeout", message: "No ack within 5 s" } } : c));
-        pushToast({ tone: "amber", title: `${cmd} timed out`, body: "No acknowledgement from the device within 5 s." });
-      }, ACK_TIMEOUT_MS);
-      pendingById.current.set(entry.cmdId, { cmd, timer });
-
-      if (data.simulated) {
-        const sim = simRef.current;
-        if (sim) {
-          // The simulated UNO answers like real hardware: a short round trip, then events + ack.
-          setTimeout(() => {
-            const { ack, events: evs } = sim.command({ cmdId: entry.cmdId, cmd, value, ts: Date.now() });
-            evs.forEach(handleEvent);
-            handleState(sim.state, true);
-            setTimeout(() => handleAck(ack), 140);
-          }, 220 + Math.random() * 200);
-        }
-        // MQTT live view but server has no MQTT_URL → it will time out, which is the honest outcome.
-      }
-      return entry;
+      if (!data.delivered) return { error: "The server has no MQTT_URL set, so it can't reach the device." };
+      return track(data.cmdId, cmd, value);
     },
-    [handleAck, handleEvent, handleState, pushToast],
+    [source, track, handleAck, handleEvent, handleState],
   );
 
   const stale = lastStateAt === null ? false : now - lastStateAt > STALE_AFTER_MS;
@@ -298,6 +330,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const value = useMemo<LiveContextValue>(
     () => ({
       source,
+      setSource,
       conn,
       state,
       stateRef,
@@ -308,15 +341,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       now,
       commands,
       sendCommand,
-      admin,
-      setAdmin,
       onEvent,
       toasts,
       pushToast,
       dismissToast,
       historyVersion,
     }),
-    [source, conn, state, deviceStatus, lastStateAt, stale, events, now, commands, sendCommand, admin, onEvent, toasts, pushToast, dismissToast, historyVersion],
+    [source, conn, state, deviceStatus, lastStateAt, stale, events, now, commands, sendCommand, setSource, onEvent, toasts, pushToast, dismissToast, historyVersion],
   );
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>;

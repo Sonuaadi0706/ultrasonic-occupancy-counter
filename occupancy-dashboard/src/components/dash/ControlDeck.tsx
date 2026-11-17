@@ -1,9 +1,9 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Bell, Check, Loader2, Lock, LogOut, Minus, Plus, RotateCcw, Unlock, X } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { useLive, type PendingCommand } from "@/components/live/LiveProvider";
+import { Bell, Check, FlaskConical, Loader2, Minus, Plus, Radio, RotateCcw, X } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { DEVICE_ID, useLive, type PendingCommand } from "@/components/live/LiveProvider";
 import { Card, SectionTitle } from "@/components/ui/Card";
 import type { CommandName } from "@/lib/types";
 
@@ -121,70 +121,28 @@ function HoldButton({ onConfirm, busy }: { onConfirm: () => void; busy?: boolean
   );
 }
 
-function LoginPanel({ onDone }: { onDone: () => void }) {
-  const { setAdmin } = useLive();
-  const [pw, setPw] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [shake, setShake] = useState(0);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setErr(null);
-    try {
-      const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw }) });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.error || "Login failed");
-      setAdmin(true);
-      onDone();
-    } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : "Login failed");
-      setShake((s) => s + 1);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <motion.form key={shake} onSubmit={submit} animate={shake ? { x: [0, -10, 10, -6, 6, 0] } : {}} transition={{ duration: 0.4 }} className="flex w-full max-w-sm flex-col gap-3">
-      <label htmlFor="pw" className="eyebrow">
-        Admin password
-      </label>
-      <input id="pw" type="password" autoFocus autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} className="h-12 rounded-xl border border-line-2 bg-black/40 px-4 font-mono text-sm" placeholder="••••••••" />
-      {err && <div className="font-mono text-xs text-coral">{err}</div>}
-      <ApplyButton onClick={() => {}} busy={busy} disabled={!pw}>
-        <span className="flex items-center justify-center gap-2">
-          <Unlock size={15} /> Unlock controls
-        </span>
-      </ApplyButton>
-    </motion.form>
-  );
-}
-
 export function ControlDeck() {
-  const { state, admin, setAdmin, sendCommand, commands, pushToast } = useLive();
+  const { state, source, deviceStatus, sendCommand, commands, pushToast } = useLive();
   const [cap, setCap] = useState(10);
   const [thr, setThr] = useState(80);
   const [corr, setCorr] = useState(0);
-  const synced = useRef(false);
+  // Re-sync the inputs from the device whenever the data source changes.
+  const syncedFor = useRef<string | null>(null);
 
   useEffect(() => {
-    if (state && !synced.current) {
-      synced.current = true;
+    if (state && syncedFor.current !== source) {
+      syncedFor.current = source;
       setCap(state.capacity);
       setThr(state.threshold);
       setCorr(state.count);
     }
-  }, [state]);
+  }, [state, source]);
 
   const send = async (cmd: CommandName, value?: string | number) => {
     const r = await sendCommand(cmd, value);
     if ("error" in r) pushToast({ tone: "coral", title: "Command not sent", body: r.error });
   };
   const busy = (c: CommandName) => commands[c]?.status === "pending";
-  const logout = async () => {
-    await fetch("/api/logout", { method: "POST" });
-    setAdmin(false);
-  };
   const mode = state?.mode ?? "room";
 
   return (
@@ -193,16 +151,20 @@ export function ControlDeck() {
         eyebrow="Control deck"
         title={<>Talk to the <span className="text-signal">device</span></>}
         right={
-          admin ? (
-            <button onClick={logout} className="flex items-center gap-2 rounded-full border border-line px-4 py-2 font-mono text-xs text-mute hover:text-ink">
-              <LogOut size={14} /> Lock
-            </button>
-          ) : null
+          source === "simulator" ? (
+            <span className="flex items-center gap-2 rounded-full border border-violet/40 bg-violet/10 px-4 py-2 font-mono text-xs text-violet">
+              <FlaskConical size={14} /> Sending to the simulator
+            </span>
+          ) : (
+            <span className={`flex items-center gap-2 rounded-full border px-4 py-2 font-mono text-xs ${deviceStatus === "online" ? "border-lime/40 bg-lime/10 text-lime" : "border-amber/40 bg-amber/10 text-amber"}`}>
+              <Radio size={14} /> {deviceStatus === "online" ? `Sending to ${DEVICE_ID} over MQTT` : `${DEVICE_ID} is ${deviceStatus} — commands may time out`}
+            </span>
+          )
         }
       />
 
       <div className="relative">
-        <div className={`grid gap-4 sm:grid-cols-2 xl:grid-cols-3 transition duration-500 ${admin ? "" : "pointer-events-none blur-md select-none"}`} aria-hidden={!admin} inert={!admin}>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <Control title="Counting mode" hint="room = direction by A→B order · queue = A +1, B −1" p={commands.mode}>
             <div className="relative grid grid-cols-2 rounded-xl border border-line p-1">
               {(["room", "queue"] as const).map((m) => (
@@ -258,22 +220,6 @@ export function ControlDeck() {
           </Control>
         </div>
 
-        <AnimatePresence>
-          {!admin && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 1.04 }} className="absolute inset-0 z-10 grid place-items-center">
-              <Card className="flex w-[min(92%,440px)] flex-col items-center gap-5 p-8 text-center">
-                <motion.div animate={{ rotate: [0, -8, 8, 0] }} transition={{ repeat: Infinity, repeatDelay: 3, duration: 0.6 }} className="grid h-14 w-14 place-items-center rounded-2xl border border-line-2 text-lime shadow-[0_0_40px_rgba(200,255,46,.25)]">
-                  <Lock size={22} />
-                </motion.div>
-                <div>
-                  <div className="font-display text-xl font-semibold">Controls are locked</div>
-                  <div className="mt-1 text-sm text-mute">Viewing is public. Changing the device needs the admin password.</div>
-                </div>
-                <LoginPanel onDone={() => pushToast({ tone: "lime", title: "Controls unlocked" })} />
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
     </section>
   );

@@ -7,7 +7,7 @@ Hosted dashboard for the [ultrasonic-occupancy-counter](https://github.com/bhuva
 ```
 UNO ──UART──▶ ESP32 ──MQTT TLS──▶ EMQX ──WSS──▶ this dashboard (browser, read-only)
                  └──HTTPS POST /api/ingest/event──▶ Next.js API ──▶ Turso
-dashboard ──POST /api/command (admin cookie)──▶ Next.js ──MQTT──▶ ESP32 ──▶ ack ──▶ dashboard
+dashboard ──POST /api/command──▶ Next.js ──MQTT──▶ ESP32 ──▶ ack ──▶ dashboard
 ```
 
 ## Quick start (no hardware, no cloud)
@@ -21,7 +21,10 @@ Open http://localhost:3000. With no broker configured the live view runs a **sof
 twin** of the UNO + ESP32 (same state machine, events, commands and acks), and history
 comes from `./local.db`, auto-seeded with 14 days of realistic traffic.
 
-Admin password for the controls is `ADMIN_PASSWORD` in `.env.local`.
+Use the **Demo / Real** toggle in the top bar. Demo drives the built-in simulator; Real
+shows your ESP32 over MQTT and sends controls to it. Real is enabled when
+`NEXT_PUBLIC_MQTT_URL` is set. The choice is remembered per browser. There is no login:
+anyone who can open the site can use the controls.
 
 ## Real MQTT end-to-end, locally
 
@@ -55,9 +58,8 @@ in `.env.local`. Mock device keys: `u` toggle UNO link, `p` pause traffic, `k` c
 | `GET /api/events?deviceId&limit&offset&from&to&types` | — | events, newest first |
 | `GET /api/summary?deviceId&range=1h\|24h\|7d\|30d&tz` | — | timeline, IN/OUT buckets, peak, time at capacity, invalid ratio, heatmap |
 | `GET /api/export?deviceId&range` | — | CSV download |
-| `POST /api/login` / `POST /api/logout` / `GET /api/session` | — | signed HttpOnly admin cookie (HS256) |
-| `POST /api/command` | admin cookie | validates, publishes to `counter/{id}/cmd` QoS 1, writes `command_audit`, returns `202 {cmdId}` |
-| `POST /api/command/ack` | admin cookie | records the ack the browser saw |
+| `POST /api/command` | — | validates, publishes to `counter/{id}/cmd` QoS 1, writes `command_audit`, returns `202 {cmdId}` |
+| `POST /api/command/ack` | — | records the ack the browser saw |
 | `POST /api/ingest/event` | `Bearer INGEST_TOKEN` | `INSERT OR IGNORE`, `201` new / `200` duplicate / `400` / `401` |
 
 State messages are never written to the database. Only discrete events are.
