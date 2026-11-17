@@ -7,6 +7,7 @@
 // Relays to MQTT exactly like the Wi-Fi gateway would (status/state/event/ack, cmd)
 // and POSTs every event to /api/ingest/event with the Bearer token.
 import mqtt from "mqtt";
+import { topicPrefix } from "../src/lib/mqtt-config.ts";
 import { SerialPort } from "serialport";
 import { ReadlineParser } from "@serialport/parser-readline";
 
@@ -15,7 +16,8 @@ const MQTT_URL = process.env.DEVICE_MQTT_URL || process.env.MQTT_URL || "mqtt://
 const INGEST_URL = process.env.INGEST_URL || "http://localhost:3000/api/ingest/event";
 const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
 const STALE_MS = 3000;
-const T = (s: string) => `counter/${DEVICE_ID}/${s}`;
+const PREFIX = topicPrefix(MQTT_URL, process.env.NEXT_PUBLIC_MQTT_TOPIC_PREFIX);
+const T = (s: string) => `${PREFIX}/${DEVICE_ID}/${s}`;
 const OFFLINE = JSON.stringify({ deviceId: DEVICE_ID, status: "offline" });
 
 async function findPort(): Promise<string> {
@@ -34,7 +36,7 @@ const client = mqtt.connect(MQTT_URL, {
   reconnectPeriod: 2000,
 });
 client.on("connect", () => {
-  console.log(`MQTT connected ${MQTT_URL}`);
+  console.log(`MQTT connected ${MQTT_URL} · topics ${PREFIX}/${DEVICE_ID}/#`);
   client.subscribe(T("cmd"), { qos: 1 });
 });
 client.on("error", (e) => console.warn("MQTT error:", e.message));

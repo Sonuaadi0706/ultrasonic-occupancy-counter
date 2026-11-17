@@ -45,11 +45,16 @@ static const uint32_t UNO_TIMEOUT_MS = 3000;   // no "S," line for this long -> 
 static const uint32_t CMD_ACK_TIMEOUT_MS = 3000;
 
 // ── Topics ───────────────────────────────────────────────────────────────────
-static const String T_STATUS = String("counter/") + DEVICE_ID + "/status";
-static const String T_STATE  = String("counter/") + DEVICE_ID + "/state";
-static const String T_EVENT  = String("counter/") + DEVICE_ID + "/event";
-static const String T_CMD    = String("counter/") + DEVICE_ID + "/cmd";
-static const String T_ACK    = String("counter/") + DEVICE_ID + "/ack";
+// Topic root. Must match the dashboard: "counter" on your own broker, or the
+// random prefix from occupancy-dashboard/src/lib/mqtt-config.ts on broker.emqx.io.
+#ifndef MQTT_TOPIC_PREFIX
+#define MQTT_TOPIC_PREFIX "counter"
+#endif
+static const String T_STATUS = String(MQTT_TOPIC_PREFIX "/") + DEVICE_ID + "/status";
+static const String T_STATE  = String(MQTT_TOPIC_PREFIX "/") + DEVICE_ID + "/state";
+static const String T_EVENT  = String(MQTT_TOPIC_PREFIX "/") + DEVICE_ID + "/event";
+static const String T_CMD    = String(MQTT_TOPIC_PREFIX "/") + DEVICE_ID + "/cmd";
+static const String T_ACK    = String(MQTT_TOPIC_PREFIX "/") + DEVICE_ID + "/ack";
 static const String WILL_PAYLOAD = String("{\"deviceId\":\"") + DEVICE_ID + "\",\"status\":\"offline\"}";
 
 // ── Network clients ──────────────────────────────────────────────────────────
@@ -143,7 +148,7 @@ void emit(const char* kind, const char* json, size_t n, bool retained) {
     return;
   }
   if (!mqtt.connected()) return;
-  String topic = String("counter/") + DEVICE_ID + "/" + kind;
+  String topic = String(MQTT_TOPIC_PREFIX "/") + DEVICE_ID + "/" + kind;
   mqtt.publish(topic.c_str(), (const uint8_t*)json, n, retained);
 }
 

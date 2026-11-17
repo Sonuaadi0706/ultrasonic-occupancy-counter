@@ -3,13 +3,14 @@
 //  - POSTs every event to /api/ingest/event with the Bearer token (3 retries)
 //  - subscribes to cmd, applies it to the simulated UNO, publishes ack with cmdId
 import mqtt from "mqtt";
+import { topicPrefix } from "../src/lib/mqtt-config.ts";
 import { CounterSimulator } from "../src/lib/simulator.ts";
 
 const DEVICE_ID = process.env.NEXT_PUBLIC_DEVICE_ID || "room-01";
 const URL = process.env.DEVICE_MQTT_URL || "mqtt://localhost:1883";
 const INGEST_URL = process.env.INGEST_URL || "http://localhost:3000/api/ingest/event";
 const INGEST_TOKEN = process.env.INGEST_TOKEN || "";
-const T = (s: string) => `counter/${DEVICE_ID}/${s}`;
+const T = (s: string) => `${topicPrefix(URL, process.env.NEXT_PUBLIC_MQTT_TOPIC_PREFIX)}/${DEVICE_ID}/${s}`;
 
 const sim = new CounterSimulator({ deviceId: DEVICE_ID, count: 2, meanGapMs: Number(process.env.MOCK_GAP_MS ?? 4500) });
 

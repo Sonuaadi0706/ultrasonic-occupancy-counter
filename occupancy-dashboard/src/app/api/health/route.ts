@@ -1,5 +1,6 @@
 import { connection } from "next/server";
-import { db, isLocalDb } from "@/lib/db";
+import { db, dbKind } from "@/lib/db";
+import { PUBLIC_BROKER, topicPrefix } from "@/lib/mqtt-config";
 
 // Node.js runtime is the default (required for mqtt + @libsql/client).
 
@@ -19,9 +20,9 @@ export async function GET() {
     {
       ok: database === "ok",
       database,
-      databaseKind: isLocalDb ? "sqlite-file" : "turso",
-      mqttCommands: Boolean(process.env.MQTT_URL),
-      realModeAvailable: Boolean(process.env.NEXT_PUBLIC_MQTT_URL),
+      databaseKind: dbKind,
+      broker: new URL(process.env.MQTT_URL || PUBLIC_BROKER.mqtts).hostname,
+      topicPrefix: topicPrefix(process.env.MQTT_URL || PUBLIC_BROKER.mqtts, process.env.NEXT_PUBLIC_MQTT_TOPIC_PREFIX),
       latencyMs: Date.now() - started,
       ts: Date.now(),
       ...(error ? { error } : {}),

@@ -2,12 +2,22 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MqttClient } from "mqtt";
+import { PUBLIC_BROKER, topicPrefix } from "@/lib/mqtt-config";
 import { CounterSimulator } from "@/lib/simulator";
 import type { CommandAck, CommandName, DeviceEvent, DeviceState, DeviceStatus } from "@/lib/types";
 
 export const DEVICE_ID = process.env.NEXT_PUBLIC_DEVICE_ID || "room-01";
 export const DEVICE_NAME = process.env.NEXT_PUBLIC_DEVICE_NAME || "Main Room";
-const MQTT_URL = process.env.NEXT_PUBLIC_MQTT_URL || "";
+/** Your broker if configured, otherwise the free public EMQX broker. */
+const MQTT_URL = process.env.NEXT_PUBLIC_MQTT_URL || PUBLIC_BROKER.wss;
+export const TOPIC_PREFIX = topicPrefix(MQTT_URL, process.env.NEXT_PUBLIC_MQTT_TOPIC_PREFIX);
+export const BROKER_HOST = (() => {
+  try {
+    return new URL(MQTT_URL).hostname;
+  } catch {
+    return MQTT_URL;
+  }
+})();
 const MQTT_USER = process.env.NEXT_PUBLIC_MQTT_USERNAME || undefined;
 const MQTT_PASS = process.env.NEXT_PUBLIC_MQTT_PASSWORD || undefined;
 
@@ -234,7 +244,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     if (source !== "mqtt") return;
     let client: MqttClient | null = null;
     let disposed = false;
-    const T = (s: string) => `counter/${DEVICE_ID}/${s}`;
+    const T = (s: string) => `${TOPIC_PREFIX}/${DEVICE_ID}/${s}`;
 
     import("mqtt").then(({ default: mqtt }) => {
       if (disposed) return;

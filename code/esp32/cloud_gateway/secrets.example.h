@@ -21,6 +21,10 @@
 #define MQTT_USE_TLS   0
 #define MQTT_HOST      "192.168.1.50"        // your Mac's IP
 #define MQTT_PORT      1883
+// Free public broker (no account), same as the hosted dashboard's default:
+// #define MQTT_HOST         "broker.emqx.io"
+// #define MQTT_PORT         1883
+// #define MQTT_TOPIC_PREFIX "echo-occ-40474638/counter"
 #define MQTT_USERNAME  ""                    // the local aedes broker has no auth
 #define MQTT_PASSWORD  ""
 #define INGEST_URL     "http://192.168.1.50:3000/api/ingest/event"

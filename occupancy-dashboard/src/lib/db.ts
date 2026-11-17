@@ -5,9 +5,12 @@ import { generateSeedEvents } from "./seed-data";
 /**
  * Turso in production (TURSO_DATABASE_URL=libsql://…), or a local SQLite file
  * for development so the dashboard works with zero setup.
+ * On Vercel without Turso the project folder is read-only, so fall back to /tmp:
+ * it works, but it is per-instance and wiped on cold starts (not durable).
  */
-const DB_URL = process.env.TURSO_DATABASE_URL || "file:local.db";
+const DB_URL = process.env.TURSO_DATABASE_URL || (process.env.VERCEL ? "file:/tmp/echo.db" : "file:local.db");
 export const isLocalDb = DB_URL.startsWith("file:");
+export const dbKind: "turso" | "sqlite-file" | "ephemeral" = !isLocalDb ? "turso" : process.env.VERCEL ? "ephemeral" : "sqlite-file";
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS devices (

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, SectionTitle } from "@/components/ui/Card";
 import { duration, shortDate, shortTime } from "@/lib/format";
@@ -107,12 +107,21 @@ function ChartsInner({ version }: { version: number }) {
   const [heatRange] = useState<SummaryRange>("30d");
   const heat = useSummary(heatRange, version);
 
+  const [dbKind, setDbKind] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/health", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setDbKind(d.databaseKind ?? null))
+      .catch(() => {});
+  }, []);
+  const eyebrow = dbKind === "ephemeral" ? "History · sample data (connect Turso to keep real events)" : dbKind === "turso" ? "History · Turso" : "History · local SQLite";
+
   const bars = useMemo(() => data?.buckets.map((b) => ({ t: b.t, in: b.in, out: -b.out })) ?? [], [data]);
   const tick = tickFor(range);
 
   return (
     <section id="history" className="scroll-mt-24">
-      <SectionTitle eyebrow="History · Turso" title={<>Occupancy over <span className="text-signal">time</span></>} right={<RangeSwitch value={range} onChange={setRange} />} />
+      <SectionTitle eyebrow={eyebrow} title={<>Occupancy over <span className="text-signal">time</span></>} right={<RangeSwitch value={range} onChange={setRange} />} />
 
       {error && (
         <Card className="mb-4 border-coral/40 p-4 font-mono text-xs text-coral">History unavailable — {error}. Live data keeps streaming.</Card>
